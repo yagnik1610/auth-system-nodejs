@@ -42,4 +42,6 @@ authRouter.get("/logout-all", authcontroller.logoutAll)
  */
 authRouter.post("/verify-email", authcontroller.verifyEmail)
 
+authRouter.post("/forgot-password", authcontroller.forgotPassword);
+authRouter.post("/reset-password/:token", authcontroller.resetPassword);
 export default authRouter; 

@@ -282,14 +282,42 @@ export async function verifyEmail(req, res){
         })
     }
 
-    const user = await userModel.findByIdAndUpdate(otpDoc.user, {
-        verified: true
-    })
+    const user = await userModel.findByIdAndUpdate(otpDoc.user, 
+        { verified: true },
+        { new: true }
+
+    );
+    
 
     await OTPModel.deleteMany({
         user: otpDoc.user
     })
 
+    await OTPModel.deleteMany({
+    user: otpDoc.user
+});
+
+// 🎨 BEAUTIFUL EMAIL HTML
+const html = `
+<div style="font-family: Arial; background:#f4f6f8; padding:20px;">
+  <div style="max-width:420px;margin:auto;background:white;padding:30px;border-radius:12px;text-align:center;">
+    <h2 style="color:#22c55e;">🎉 Welcome ${user.username}</h2>
+    <p style="color:#6b7280;">
+      Your account has been successfully verified.
+    </p>
+    <p style="color:#6b7280;">
+      You can now login and start using the app.
+    </p>
+  </div>
+</div>
+`;
+
+await sendEmail(
+    user.email,
+    "Registration Successful 🎉",
+    "Your account is verified",
+    html
+);
     return res.status(200).json({
         message: "email verified successfully",
         user:{
@@ -300,3 +328,149 @@ export async function verifyEmail(req, res){
     });
 }
 
+export async function forgotPassword(req, res) {
+    try {
+        const { email } = req.body;
+
+        const user = await userModel.findOne({ email });
+
+        if (!user) {
+            return res.status(400).json({
+                message: "user not found"
+            });
+        }
+
+        // 🔐 Generate token
+        const resetToken = crypto.randomBytes(32).toString("hex");
+
+        user.resetPasswordToken = resetToken;
+        user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
+
+        await user.save();
+
+        const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
+
+        const html = `
+<div style="font-family:Arial;background:#f4f6f8;padding:20px;">
+  <div style="max-width:420px;margin:auto;background:white;padding:25px;border-radius:10px;text-align:center;">
+    
+    <h2 style="color:#4f46e5;">🔐 Reset Your Password</h2>
+
+    <p style="color:#6b7280;">
+      We received a request to reset your password.
+    </p>
+
+    <a href="${resetUrl}" style="
+      display:inline-block;
+      margin:20px 0;
+      padding:12px 20px;
+      background:#4f46e5;
+      color:white;
+      border-radius:8px;
+      text-decoration:none;
+      font-weight:bold;
+    ">
+      Reset Password
+    </a>
+
+    <p style="font-size:12px;color:#6b7280;">
+      ${resetUrl}
+    </p>
+
+    <p style="color:#ef4444;font-size:12px;">
+      Link expires in 10 minutes
+    </p>
+
+  </div>
+</div>
+`;
+
+        console.log("Sending reset email to:", email);
+
+        await sendEmail(
+            email,
+            "Reset Your Password 🔐",
+            "Click the link to reset password",
+            html
+        );
+
+        res.status(200).json({
+            message: "reset link sent to email"
+        });
+
+    } catch (error) {
+        console.log("FORGOT PASSWORD ERROR:", error);
+        res.status(500).json({
+            message: "something went wrong"
+        });
+    }
+}
+
+
+export async function resetPassword(req, res) {
+    try {
+        const { token } = req.params;
+        const { password } = req.body;
+
+        const user = await userModel.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).json({
+                message: "invalid or expired token"
+            });
+        }
+
+        const hashedPassword = crypto
+            .createHash("sha256")
+            .update(password)
+            .digest("hex");
+
+        user.password = hashedPassword;
+        user.verified = true;
+
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+
+        await user.save();
+
+        const html = `
+<div style="font-family:Arial;background:#f4f6f8;padding:20px;">
+  <div style="max-width:420px;margin:auto;background:white;padding:25px;border-radius:10px;text-align:center;">
+    
+    <h2 style="color:#4f46e5;">🔐 Password Updated</h2>
+
+    <p style="color:#6b7280;">
+      Your password has been successfully changed.
+    </p>
+
+    <p style="color:#ef4444;font-size:12px;">
+      If this wasn’t you, secure your account immediately.
+    </p>
+
+  </div>
+</div>
+`;
+
+        console.log("Sending success email to:", user.email);
+
+        await sendEmail(
+            user.email,
+            "Password Reset Successful 🔐",
+            "Password changed successfully",
+            html
+        );
+
+        res.status(200).json({
+            message: "password reset successful"
+        });
+
+    } catch (error) {
+        console.log("RESET PASSWORD ERROR:", error);
+        res.status(500).json({
+            message: "reset failed"
+        });
+    }
+}
